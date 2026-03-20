@@ -355,6 +355,146 @@ Object result = new TangoClient()
 
 ---
 
+## 9. Throttle — rate control for fast producers
+
+**The device updates faster than you need. `throttleLast` bridges the gap — one operator, no sleep, no counter.**
+
+Poll at 50 ms (20 Hz) but only display at 1 s (1 Hz). The 95% of readings that
+arrive between display ticks are silently dropped inside the Rx chain. The upstream
+poll rate is unaffected — you still get the freshest possible value at each display tick.
+
+```shell
+jbang TangoTestThrottle.java \
+  tango://localhost:10000/sys/tg_test/1 50 1000
+```
+
+Arguments: `<device> [poll-ms=50] [display-ms=1000]`  — Ctrl+C to stop.
+
+Key code:
+```java
+Flowable.interval(pollMs, TimeUnit.MILLISECONDS)
+    // read at full poll rate — device sees every request
+    .flatMapSingle(tick ->
+        Flowable.fromPublisher(new RxTangoAttribute<>(device, "double_scalar"))
+                .firstOrError()
+                .map(v -> ((Number) v).doubleValue())
+    )
+    .doOnNext(v -> polled.incrementAndGet())   // count every upstream value
+    // throttleLast: of all values arriving within each displayMs window,
+    // keep only the most recent one and discard the rest.
+    // One operator replaces: synchronized flag, manual drop counter, sleep loop.
+    .throttleLast(displayMs, TimeUnit.MILLISECONDS)
+    .doOnNext(v -> displayed.incrementAndGet())
+    .blockingSubscribe(
+        v -> System.out.printf("  %+.6f   (polled %3d, displayed %3d)%n",
+                v, polled.get(), displayed.get()),
+        err -> System.err.println("ERROR: " + err.getMessage())
+    );
+```
+
+---
+
+## 10. Sliding average — noise reduction with `buffer`
+
+**A rolling mean over the last N samples. No circular buffer, no index arithmetic — `buffer(N, 1)` does it all.**
+
+`buffer(N, 1)` emits overlapping windows of N consecutive values, stepping forward
+by 1 each tick. Each window is mapped to its mean. High-frequency noise averages out;
+slow trends remain visible. The "noise" column shows how far each raw reading
+deviates from its smoothed value.
+
+```shell
+jbang TangoTestSlidingAverage.java \
+  tango://localhost:10000/sys/tg_test/1 5 400
+```
+
+Arguments: `<device> [window=5] [interval-ms=400]`  — output starts after the first full window.
+
+Key code:
+```java
+Flowable.interval(intervalMs, TimeUnit.MILLISECONDS)
+    .flatMapSingle(tick ->
+        Flowable.fromPublisher(new RxTangoAttribute<>(device, "double_scalar"))
+                .firstOrError()
+                .map(v -> ((Number) v).doubleValue())
+    )
+    // buffer(N, 1): emit a List<Double> of the last N values after every new sample.
+    // window advances by 1 each tick:
+    //   tick N:   [v1..vN]
+    //   tick N+1: [v2..vN+1]
+    // No output until the first N samples have accumulated.
+    .buffer(window, 1)
+    .map(buf -> {
+        double sum = 0;
+        for (double x : buf) sum += x;
+        double raw      = buf.get(buf.size() - 1); // most recent sample
+        double smoothed = sum / buf.size();
+        return new double[]{ raw, smoothed };
+    })
+    .blockingSubscribe(
+        pair -> System.out.printf("  %+16.6f  %+18.6f  %+.6f%n",
+                pair[0], pair[1], pair[0] - pair[1]),
+        err  -> System.err.println("ERROR: " + err.getMessage())
+    );
+```
+
+---
+
+## 11. Running statistics — live aggregation with `scan`
+
+**Streaming min/max/mean/stddev that updates after every single sample. O(1) memory. No batch. No list.**
+
+`scan()` is the streaming counterpart of `reduce()`. Where `reduce()` waits for
+the stream to complete and emits one result, `scan()` emits the running accumulation
+after every value — the statistics table updates live as data arrives.
+
+Uses **Welford's online algorithm** for numerically stable variance: avoids the
+catastrophic cancellation that naive `Σx² - n·mean²` suffers with large or
+closely-spaced values.
+
+Compare with `TangoTestStats`: that script collects N samples into a List, computes
+once, and exits. This one runs indefinitely and never allocates a growing list.
+
+```shell
+jbang TangoTestRunningStats.java \
+  tango://localhost:10000/sys/tg_test/1 500
+```
+
+Arguments: `<device> [interval-ms=500]`  — Ctrl+C to stop.
+
+Key code:
+```java
+// Immutable accumulator; Stats::update implements Welford's algorithm.
+record Stats(long n, double latest, double min, double max, double mean, double m2) {
+    static Stats update(Stats s, double x) {
+        long   n      = s.n + 1;
+        double delta  = x - s.mean;
+        double mean   = s.mean + delta / n;       // running mean, O(1)
+        double delta2 = x - mean;
+        double m2     = s.m2 + delta * delta2;    // Welford M2 accumulator
+        return new Stats(n, x, Math.min(s.min, x), Math.max(s.max, x), mean, m2);
+    }
+    double stddev() { return n > 1 ? Math.sqrt(m2 / (n - 1)) : 0.0; }
+}
+
+Flowable.interval(intervalMs, TimeUnit.MILLISECONDS)
+    .flatMapSingle(tick ->
+        Flowable.fromPublisher(new RxTangoAttribute<>(device, "double_scalar"))
+                .firstOrError().map(v -> ((Number) v).doubleValue())
+    )
+    // scan() folds each value into the accumulator and emits a new Stats immediately.
+    // Unlike reduce(), scan() never waits for the stream to complete.
+    .scan(Stats.zero(), Stats::update)
+    .filter(s -> s.n() > 0)  // skip the empty seed
+    .blockingSubscribe(
+        s   -> System.out.printf("  %5d  %+14.6f  %+14.6f  %+14.6f  %+14.6f  %14.6f%n",
+                s.n(), s.latest(), s.mean(), s.min(), s.max(), s.stddev()),
+        err -> System.err.println("ERROR: " + err.getMessage())
+    );
+```
+
+---
+
 ## Bonus: Spec compliance verification
 
 Verifies all RxJTango publishers against the
@@ -384,4 +524,7 @@ Run any example from the repo root without specifying the file path:
 | `jbang calibrate@. <src-dev> <src-attr> <dst-dev> <dst-attr> <gain> <offset> [ms]` | Read-transform-write |
 | `jbang alarm@. <threshold> <ms> <device> <attr> [...]` | Fan-in alarm monitor |
 | `jbang pipeline@. <device>` | Fluent 6-step pipeline |
+| `jbang throttle@. <device> [poll-ms] [display-ms]` | Rate control with `throttleLast` |
+| `jbang sliding-avg@. <device> [window] [ms]` | Rolling average with `buffer(N,1)` |
+| `jbang running-stats@. <device> [ms]` | Live streaming stats with `scan` |
 | `jbang verify-spec@.` | Run reactive-streams TCK |

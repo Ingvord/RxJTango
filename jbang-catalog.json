@@ -40,6 +40,18 @@
       "script-ref": "examples/TangoTestPipeline.java",
       "description": "6-step fluent TangoClient pipeline on TangoTest: read → command → calibrate → command → write → read-back"
     },
+    "throttle": {
+      "script-ref": "examples/TangoTestThrottle.java",
+      "description": "Poll at high frequency, display at low rate via throttleLast — shows Rx rate control"
+    },
+    "sliding-avg": {
+      "script-ref": "examples/TangoTestSlidingAverage.java",
+      "description": "Rolling average over a sliding window of N samples using buffer(N, 1)"
+    },
+    "running-stats": {
+      "script-ref": "examples/TangoTestRunningStats.java",
+      "description": "Live streaming min/max/mean/stddev using scan() — O(1) memory, Welford algorithm"
+    },
     "verify-spec": {
       "script-ref": "examples/VerifySpec.java",
       "description": "Run the reactive-streams TCK against RxTangoAttribute"
