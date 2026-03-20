@@ -27,6 +27,10 @@ public class RxTangoCommand<T, V> extends RxTango<T> {
         this(TangoProxies.newDeviceProxyWrapper(device), name);
     }
 
+    public RxTangoCommand(String device, String name, V input) throws Exception {
+        this(TangoProxies.newDeviceProxyWrapper(device), name, input);
+    }
+
     @Override
     protected Future<T> getFuture() {
         return CompletableFuture.supplyAsync(() -> {
