@@ -52,6 +52,10 @@
       "script-ref": "examples/TangoTestRunningStats.java",
       "description": "Live streaming min/max/mean/stddev using scan() — O(1) memory, Welford algorithm"
     },
+    "backpressure": {
+      "script-ref": "examples/TangoTestBackpressure.java",
+      "description": "Fast producer vs slow consumer: demonstrate onBackpressureLatest/Drop/Buffer strategies"
+    },
     "verify-spec": {
       "script-ref": "examples/VerifySpec.java",
       "description": "Run the reactive-streams TCK against RxTangoAttribute"

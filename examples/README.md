@@ -495,6 +495,82 @@ Flowable.interval(intervalMs, TimeUnit.MILLISECONDS)
 
 ---
 
+## 12. Backpressure — fast producer, slow consumer
+
+**What happens when the device produces data faster than you can process it? Backpressure is the answer.**
+
+The producer polls TangoTest at 100 ms (10 Hz).
+The consumer takes 600 ms per item — 6× slower.
+Without a strategy, RxJava's internal buffer fills up and the stream crashes with
+`MissingBackpressureException`. Three strategies handle it differently:
+
+| Strategy | Behaviour |
+|----------|-----------|
+| `latest` | Keep only the newest unprocessed value; consumer always wakes to fresh data |
+| `drop`   | Discard every value that arrives while the consumer is busy |
+| `buffer` | Queue up to N values; crash when full — useful to *show* the problem |
+
+Run with `latest` (default) and watch the skip counter climb while values stay fresh:
+
+```shell
+jbang TangoTestBackpressure.java \
+  tango://localhost:10000/sys/tg_test/1 100 600
+```
+
+Swap strategy to see `drop` behaviour:
+
+```shell
+jbang TangoTestBackpressure.java \
+  tango://localhost:10000/sys/tg_test/1 100 600 --strategy drop
+```
+
+Trigger the exception intentionally with a tiny buffer:
+
+```shell
+jbang TangoTestBackpressure.java \
+  tango://localhost:10000/sys/tg_test/1 100 600 --strategy buffer --buffer-size 5
+```
+
+Key code:
+```java
+// Fast upstream: read Tango at 100 ms poll rate.
+Flowable<Double> upstream = Flowable.interval(pollMs, TimeUnit.MILLISECONDS)
+    .flatMapSingle(tick ->
+        Flowable.fromPublisher(new RxTangoAttribute<>(device, "double_scalar"))
+                .firstOrError().map(v -> ((Number) v).doubleValue())
+    )
+    .doOnNext(v -> produced.incrementAndGet());
+
+// Apply backpressure strategy between producer and consumer.
+//
+// onBackpressureLatest — replaces the pending slot with the newest arrival.
+//   Consumer always processes the most recent reading, never stale queued data.
+//
+// onBackpressureDrop — discards values arriving while the consumer is busy.
+//   Even the newest arrival is dropped if no slot is free yet.
+//
+// onBackpressureBuffer(N) — queues up to N items, then throws
+//   MissingBackpressureException. Use this to demonstrate the failure mode.
+Flowable<Double> bounded = upstream.onBackpressureLatest();
+
+// observeOn decouples producer and consumer onto separate threads.
+// Without it both run on the same thread — no backpressure ever builds.
+bounded
+    .observeOn(Schedulers.single())
+    .blockingSubscribe(
+        v -> {
+            long c = consumed.incrementAndGet();
+            System.out.printf("  prod=%d  cons=%d  skipped=%d  value=%+.6f%n",
+                    produced.get(), c, produced.get() - c, v);
+            Thread.sleep(processMs); // simulate slow downstream work
+        },
+        err -> System.err.printf("ERROR (%s): %s%n",
+                err.getClass().getSimpleName(), err.getMessage())
+    );
+```
+
+---
+
 ## Bonus: Spec compliance verification
 
 Verifies all RxJTango publishers against the
@@ -527,4 +603,5 @@ Run any example from the repo root without specifying the file path:
 | `jbang throttle@. <device> [poll-ms] [display-ms]` | Rate control with `throttleLast` |
 | `jbang sliding-avg@. <device> [window] [ms]` | Rolling average with `buffer(N,1)` |
 | `jbang running-stats@. <device> [ms]` | Live streaming stats with `scan` |
+| `jbang backpressure@. <device> [poll-ms] [process-ms] [--strategy latest\|drop\|buffer]` | Fast producer vs slow consumer |
 | `jbang verify-spec@.` | Run reactive-streams TCK |
