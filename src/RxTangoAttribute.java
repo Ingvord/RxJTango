@@ -9,10 +9,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Future;
 
-/**
- * @author ingvord
- * @since 23.06.2020
- */
 public class RxTangoAttribute<T> extends RxTango<T> {
     public RxTangoAttribute(String device, String name) throws Exception {
         this(TangoProxies.newDeviceProxyWrapper(device), name);

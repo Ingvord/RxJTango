@@ -1,16 +1,15 @@
 package org.tango.client.rx;
 
-import org.tango.client.ez.proxy.*;
+import org.tango.client.ez.proxy.NoSuchAttributeException;
+import org.tango.client.ez.proxy.TangoProxies;
+import org.tango.client.ez.proxy.TangoProxy;
+import org.tango.client.ez.proxy.WriteAttributeException;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Future;
 
-/**
- * @author ingvord
- * @since 24.06.2020
- */
-public class RxTangoAttributeWrite<T> extends RxTango<T> {
+public class RxTangoAttributeWrite<T> extends RxTango<Void> {
     private final T value;
 
     public RxTangoAttributeWrite(TangoProxy proxy, String name, T value) {
@@ -23,12 +22,12 @@ public class RxTangoAttributeWrite<T> extends RxTango<T> {
     }
 
     @Override
-    protected Future<T> getFuture() {
+    protected Future<Void> getFuture() {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 proxy.writeAttribute(name, value);
-                return proxy.readAttribute(name);
-            } catch (WriteAttributeException | ReadAttributeException | NoSuchAttributeException e) {
+                return null;
+            } catch (WriteAttributeException | NoSuchAttributeException e) {
                 throw new CompletionException(e);
             }
         });

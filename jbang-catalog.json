@@ -1,0 +1,24 @@
+{
+  "aliases": {
+    "read-attribute": {
+      "script-ref": "examples/ReadAttribute.java",
+      "description": "Read one or more Tango attributes and print their values"
+    },
+    "monitor": {
+      "script-ref": "examples/MonitorAttribute.java",
+      "description": "Stream Tango attribute change events to stdout"
+    },
+    "zip": {
+      "script-ref": "examples/ZipAttributes.java",
+      "description": "Poll and zip two attributes from (possibly different) devices"
+    },
+    "poll": {
+      "script-ref": "examples/PollAttribute.java",
+      "description": "Poll a Tango attribute on a fixed interval and stream the values"
+    },
+    "verify-spec": {
+      "script-ref": "examples/VerifySpec.java",
+      "description": "Run the reactive-streams TCK against RxTangoAttribute"
+    }
+  }
+}

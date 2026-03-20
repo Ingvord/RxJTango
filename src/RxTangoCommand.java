@@ -9,10 +9,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Future;
 
-/**
- * @author ingvord
- * @since 06.09.2019
- */
 public class RxTangoCommand<T, V> extends RxTango<T> {
 
     private final V input;
